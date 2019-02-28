@@ -1,2 +1,5 @@
 # BigData
-Just do it
+
+Hi Humans!
+
+Come here, Let's start the big data journey!
