@@ -1,0 +1,143 @@
+Hadoop概念
+
+    Hadoop软件库是一个开源框架，允许使用简单的编程模型跨计算机集群分布式处理大型数据集。它旨在从单个服务器扩展到数千台计算机，每台计算机都提供本地计算和存储。库本身不是依靠硬件来提供高可用性，而是设计用于检测和处理应用程序层的故障，从而在计算机集群之上提供高可用性服务，每个计算机都可能容易出现故障。是大数据技术的基础。
+
+Hadoop框架
+
+    Hadoop框架包括以下四个模块：
+    1. HadoopCommon: 这些是其他Hadoop模块所需的Java库和实用程序。这些库提供文件系统和操作系统级抽象，并包含启动Hadoop所需的Java文件和脚本。
+    2. HadoopYARN: 这是一个用于作业调度和集群资源管理的框架。
+    3. HadoopDistributed File System (HDFS™): 分布式文件系统，提供对应用程序数据的高吞吐量访问。
+    4. HadoopMapReduce：这是基于YARN的用于并行处理大数据集的系统。
+    
+    除了以上四个模块，Hadoop还包括指向可以安装在Hadoop之上或之上的附加软件包的收集，例如Apache Pig，Apache Hive，Apache HBase，Apache Spark等。
+
+Hadoop框架核心
+
+    Hadoop的框架最核心的设计是HDFS和MapReduce
+    HDFS：
+    - hadoop distribute file system(分布式文件系统)
+    - 最大化利用磁盘
+    MapReduce：
+    - 编程模型，主要用来做数据分析
+    - 最大化利用CPU
+    Hbase：
+    - Nosql数据库，Key-Value存储
+    - 最大化利用内存
+
+Hadoop的四种模式
+
+    1、本地模式：
+    本地模式就是解压源码包，不需要做任何的配置。通常用于开发调试，或者感受hadoop。
+    2、伪分布模式：
+    在学习当中一般都是使用这种模式，伪分布模式就是在一台机器的多个进程运行多个模块。虽然每一个模块都有相应的进程，但是却还是运行在同一个系统里面。所以叫伪分布式。
+    3、完全分布式：
+    这种模式才是工作当中所用的模式，hadoop运行在多台机器上面，我们称之为hadoop集群。
+    4、HA：
+    在实际的工作当中，对于hadoop完全分布式来说，并不真正的可靠，因为hadoop完全分布式集群会有单点故障（namenode单点故障、yarn单点故障），所以一般都会对这个集群做HA，一般都是做namenode和yarn的高可用。
+
+Hadoop注意点
+
+    1. 为什么伪分布模式或完全分布式模式速度明显比本地模式要快?
+    本地独立模式将每个单独任务执行的信息都打印在屏幕上，而在伪分布模式和全分布式模式下，这些信息只被写入在运行主机的日志文件中。
+
+Hadoop集群架构
+
+    Hadoop集群由一个Master主节点和若干个Slave节点组成。其中，Master节点上运行NameNode和JobTracker守护进程；Slave节点上运行DataNode和TaskTracker守护进程。 
+    Hadoop分别从三个角度将集群中的主机划分为两种角色：
+
+
+
+Hadoop集群主机角色划分
+
+    Hadoop集群由一个Master主节点和若干个Slave节点组成。其中，Master节点上运行NameNode和JobTracker守护进程；Slave节点上运行DataNode和TaskTracker守护进程。 
+    Hadoop分别从三个角度将集群中的主机划分为两种角色：
+
+
+
+1. 从主机服务角度
+
+    从主机服务功能上将集群中的主机分为Master和Slave。Master主机负责分布式文件系统的元数据管理和分布式计算的作业调度，一般在一个集群中有一到数台Master主机；Slave主机负责具体的数据存储和计算。
+
+1. 从文件系统HDFS的角度
+
+    	从文件系统HDFS的的角度将主机划分为NameNode和DatanNode。
+    	Namenode存储分布式文件系统中的元数据信息，换句话说也就是命名空间，它维护着文件系统树及整棵树内所有文件和目录，这些信息以两个文件形式永久的保存在本地磁盘上：命名空间镜像文件和编辑日志文件。同时namenode也记录每个文件中各个块所在的数据节点信息，但是不会永久保留这些信息，因为这些信息会在系统启动的时候由数据节点重建；
+    	DataNode存储文件系统中实际文件数据，它们根据需要储存和检索数据块(受客户端或namenode调度)，并且定期的向namenode发送他们所存储的块列表(所谓的心跳检测)。
+    	换句话说，namenode的安全机制很重要，如果丢失或者损坏了namenode，文件系统上所有的文件就将丢失。因为我们不知道如何根据datanode块重建文件。Hadoop提供了两种保护机制：
+    1. 冗余备份namenode
+    2. 运行Secondary namenode辅助namenode，它定期通过编辑日志合并命名空间镜像，以防止编辑日志过大。
+    	在实际生产开发中会运用namenode HA机制，参见下面的namenode的HA方案。
+    
+    	Hadoop的文件系统远不止HDFS一种，它整合了众多的文件系统，首先提供了一个高层的文件系统抽象org.apache.hadoop.fs.FileSystem，该抽象类展示了一个分布式文件系统，并有几个具体的实现，见下表：
+
+  文件系统   	URI方案	java实现org.apache.hadoop       	定义                                      
+  Local  	file 	fs.LocalFileSystem            	支持有客户端校检和的本地文件系统。                       
+  HDFS   	hdfs 	hdfs.DistributedFileSystem    	Hadoop的分布式文件系统。                         
+  HFTP   	hftp 	hdfs.HftpFileSystem           	支持通过HTTP方式以只读的方式访问HDFS，distcp经常用在不同的HDFS集群间复制数据。
+  HSFTP  	hsftp	fs.HsftpFileSystem            	支持通过HTTPS方式以只读的方式访问HDFS。                
+  HAR    	har  	fs.HarFileSystem              	构建在其他文件系统上进行归档文件的文件系统。Hadoop归档文件主要来减少NameNode的内存使用。
+  KFS    	kfs  	fs.kfs.Kosmos.FileSystem      	类似于GFS和HDFS，用C++编写                      
+  FTP    	ftp  	fs.ftp.FtpFileSystem          	由FTP服务器支持的文件系统                          
+  S3(本地) 	s3n  	fs.s2native.NativeS3FileSystem	基于Amazon S3的文件系统                        
+  S3(基于块)	s3   	fs.s3.NativeS3FileSystem      	基于Amazon S3的文件系统，以块格式储存解决了S3的5GB文件大小的限制。
+
+1. 从MapReduce角度
+
+    从MapReduce角度将主机划分为JobTracker和TaskTracker。
+    JobTracker是作业的调度与管理者，属于master;
+    TaskTracker是任务的实际执行者，属于slave。
+    
+    所以HDFS只是其中的一个文件系统之一
+
+Hadoop中的RPC机制
+
+    同其他RPC框架一样，Hadoop RPC分为四个部分：
+    - 序列化层：Clent与Server端通信传递的信息采用了Hadoop里提供的序列化类或自定义的Writable类型；
+    - 函数调用层：Hadoop RPC通过动态代理以及java反射实现函数调用；
+    - 网络传输层：Hadoop RPC采用了基于TCP/IP的socket机制；
+    - 服务器端框架层：RPC Server利用java NIO以及采用了事件驱动的I/O模型，提高RPC Server的并发处理能力；
+
+Hadoop Trash功能
+
+    Hadoop回收站trash，默认是关闭的。启用回收站功能后，使用rm命令从HDFS中删除某些内容时，文件或目录不会立即被清除，它们将被移动到回收站Current目录中(/user/${username}/.Trash/current)。如果检查点已经启用，会定期使用时间戳重命名Current目录。.Trash中的文件在用户可配置的时间延迟后被永久删除。回收站中的文件和目录可以简单地通过将它们移动到.Trash目录之外的位置来恢复.
+    
+    开启垃圾箱(trash)功能，需配置core-site.xml，如下
+        <property>
+            <name>fs.trash.interval</name>
+            <value>1440</value>
+        </property>
+        <property>
+            <name>fs.trash.checkpoint.interval</name>
+            <value>0</value>
+        </property>
+    
+    - fs.trash.interval 分钟数，当超过这个分钟数后检查点会被删除。如果为零，回收站功能将被禁用。60 = 1小时
+    - fs.trash.checkpoint.interval 检查点创建的时间间隔(单位为分钟)。其值应该小于或等于fs.trash.interval。如果为零，则将该值设置为fs.trash.interval的值。
+    
+    1. 从垃圾箱恢复数据
+         hadoop fs -cp .Trash/Current/*
+
+Hadoop的HA方案
+
+        采用HA的HDFS集群配置两个NameNode，分别处于Active和Standby状态。当Active NameNode故障之后，Standby接过责任继续提供服务，用户没有明显的中断感觉。一般耗时在几十秒到数分钟。 
+        HA涉及到的主要实现逻辑有
+        1） 主备需共享edit log存储。 
+        主NameNode和待命的NameNode共享一份edit log，当主备切换时，Standby通过回放edit log同步数据。 
+        共享存储通常有2种选择:NFS(传统的网络文件系统);QJM
+        QJM是专门为HDFS的HA实现而设计的，用来提供高可用的edit log。QJM运行一组journal node，edit log必须写到大部分的journal nodes。通常使用3个节点，因此允许一个节点失败，类似ZooKeeper。注意QJM没有使用ZK，虽然HDFS HA的确使用了ZK来选举主Namenode。一般推荐使用QJM。
+    
+        2）DataNode需要同时往主备发送Block Report
+        因为Block映射数据存储在内存中（不是在磁盘上），为了在Active NameNode挂掉之后，新的NameNode能够快速启动，不需要等待来自Datanode的Block Report，DataNode需要同时向主备两个NameNode发送Block Report。
+    
+        3）客户端需要配置failover模式（失效备援模式，对用户透明）
+        Namenode的切换对客户端来说是无感知的，通过客户端库来实现。客户端在配置文件中使用的HDFS URI是逻辑路径，映射到一对Namenode地址。客户端会不断尝试每一个Namenode地址直到成功。
+    
+        4）Standby替代Secondary NameNode
+        如果没有启用HA，HDFS独立运行一个守护进程作为Secondary Namenode。定期checkpoint，合并镜像文件和edit日志。
+        如果当主Namenode失败时，备份Namenode正在关机（停止 Standby），运维人员依然可以从头启动备份Namenode，这样比没有HA的时候更省事，算是一种改进，因为重启整个过程已经标准化到Hadoop内部，无需运维进行复杂的切换操作。
+        NameNode的切换通过代failover controller来实现。failover controller有多种实现，默认实现使用ZooKeeper来保证只有一个Namenode处于active状态。
+        每个Namenode运行一个轻量级的failover controller进程，该进程使用简单的心跳机制来监控Namenode的存活状态并在Namenode失败时触发failover。Failover可以由运维手动触发，例如在日常维护中需要切换主Namenode，这种情况graceful(优雅的) failover，非手动触发的failover称为ungraceful failover。
+        在ungraceful failover的情况下，没有办法确定失败（被判定为失败）的节点是否停止运行，也就是说触发failover后，之前的主Namenode可能还在运行。QJM一次只允许一个Namenode写edit log，但是之前的主Namenode仍然可以接受读请求。Hadoop使用fencing来杀掉之前的Namenode。Fencing通过收回之前Namenode对共享的edit log的访问权限、关闭其网络端口使得原有的Namenode不能再继续接受服务请求。使用STONITH技术也可以将之前的主Namenode关机。
+        最后，HA方案中Namenode的切换对客户端来说是不可见的，主要通过客户端库来完成。
+
