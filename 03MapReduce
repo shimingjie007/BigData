@@ -1,0 +1,70 @@
+MapReduce作业执行过程中涉及到的实体
+
+    1. 客户端 
+    作用是提交MapReduce作业到集群的计算机主节点JobTracker上。客户端可以是集群上的节点也可以不是集群上的节点，从集群外的节点提交作业时需要制定JobTRacker的地址。
+    2. 计算主节点JobTracker 
+    JobTracker 的功能主要是负责作业的任务分配，计算任务的管理和监控。
+    3. 从节点TaskTracker 
+    运行JobTracker分配给他的任务。
+    4. HDFS 
+    计算开始的时候，程序从HDFS中读入数据；计算结束后，将数据保存到HDFS中。
+
+MapReduce的工作流程
+
+    MapReduce工作流程
+    
+    1. 作业的提交 
+    客户端调用JobClient的runjob()方法创建一个 JobClient实例，然后调用submitJob()方法提交作业到集群，其中主要包括以下步骤： 
+    1）通过JobTracker的getNewJobId()请求一个新的作业ID； 
+    2）检查作业的输出（比如没有指定输出目录或输出目录已经存在，就抛出异常），以免覆盖原有文件内容； 
+    3）计算作业的输入分片，为了高效，分片大小最好和HDFS块的大小相同（当分片无法计算时，比如输入路径不存在等原因，就抛出异常）； 
+    4）将运行作业所需的资源（比如作业Jar文件，配置文件，计算所得的输入分片等）复制到一个以作业ID命名的目录中。（集群中有多个副本可供TaskTracker访问）； 
+    5）通过调用JobTracker的submitJob()方法告知作业准备执行； 
+    6）JobTracker调度任务到工作节点上执行。runjob每隔1秒轮训一次节点，看看执行进度，指导任务执行完毕。 
+    
+    2. 作业的初始化 
+    1）JobTracker接收到对其submitJob()方法的调用后，就会把这个调用放入一个内部队列中，交由作业调度器（比如先进先出调度器，容量调度器，公平调度器等）进行调度； 
+    2）初始化主要是创建一个表示正在运行作业的对象——封装任务和记录信息，以便跟踪任务的状态和进程； 
+    3）为了创建任务运行列表，作业调度器首先从HDFS中获取JobClient已计算好的输入分片信息； 
+    4）然后为每个分片创建一个MapTask，并且创建ReduceTask。（Task在此时被指定ID，请区分清楚Job的ID和Task的ID）。 
+    
+    3. 任务的分配 
+    1）TaskTracker定期通过“心跳”与JobTracker进行通信，主要是告知JobTracker自身是否还存活，以及是否已经准备好运行新的任务等； 
+    2）JobTracker在为TaskTracker分配一个Task前，JobTracker需要按照优先级选择一个作业，在最高优先级的job中选择一个task。Hadoop默认的作业调度Map Task优先级比Reduce Task高； 
+    3）TaskTracker根据一定的策略运行一定数量的map task和reduce task。可运行的数量有TaskTracker的数量和内存大小决定
+    
+    4. 任务的执行 
+    1）TaskTracker分配到一个任务后，通过从HDFS把作业的Jar文件复制到TaskTracker所在的文件系统（Jar本地化用来启动JVM），同时TaskTracker将应用程序所需要的全部文件从分布式缓存复制到本地磁盘； 
+    2）TaskTracker为任务新建一个本地工作目录，并把Jar文件中的内容解压到这个文件夹中； 
+    3）TaskTracker启动一个新的JVM来运行每个Task（包括MapTask和ReduceTask），这样Client的MapReduce就不会影响TaskTracker守护进程（比如，导致崩溃或挂起等）。 
+    子进程通过umbilical接口与父进程进行通信，Task的子进程每隔几秒便告知父进程它的进度，直到任务完成。
+    
+    5. 进程和状态的更新 
+    一个作业和它的每个任务都有一个状态信息，包括作业或任务的运行状态，Map和Reduce的进度，计数器值，状态消息或描述（可以由用户代码来设置）。这些状态信息在作业期间不断改变，它们是如何与Client通信的呢？
+    任务在运行时，对其进度（即任务完成的百分比）保持追踪。对于MapTask，任务进度是已处理输入所占的比例。对于ReduceTask，情况稍微有点复杂，但系统仍然会估计已处理Reduce输入的比例；
+    这些消息通过一定的时间间隔由Child JVM—>TaskTracker—>JobTracker汇聚。JobTracker将产生一个表明所有运行作业及其任务状态的全局视图。可以通过Web UI查看。同时JobClient通过每秒查询JobTracker来获得最新状态，并且输出到控制台上。
+
+
+
+
+
+Shuffle和Sort
+
+    Shuffle阶段是指从Map的输出开始，包括系统执行排序以及传送Map输出到Reduce作为输入的过程。Sort阶段是指对Map端输出的Key进行排序的过程。不同的Map可能输出相同的Key，相同的Key必须发送到同一个Reduce端处理。Shuffle阶段可以分为Map端的Shuffle和Reduce端的Shuffle。Shuffle阶段和Sort阶段的工作过程，如下所示：
+
+
+
+    1、Map端的Shuffle 
+    Map函数开始产生输出时，并不是简单地把数据写到磁盘，因为频繁的磁盘操作会导致性能严重下降。它的处理过程更复杂，数据首先写到内存中的一个缓冲区，并做一些预排序，以提升效率；
+    每个MapTask都有一个用来写入输出数据的循环内存缓冲区（默认大小为100MB），当缓冲区中的数据量达到一个特定阈值时（默认是80%）系统将会启动一个后台线程把缓冲区中的内容写到磁盘（即spill阶段）。在写磁盘过程中，Map输出继续被写到缓冲区，但如果在此期间缓冲区被填满，那么Map就会阻塞直到写磁盘过程完成；
+    在写磁盘前，线程首先根据数据最终要传递到的Reducer把数据划分成相应的分区（partition）。在每个分区中，后台线程按Key进行排序（快速排序），如果有一个Combiner（即Mini Reducer）便会在排序后的输出上运行；
+    一旦内存缓冲区达到溢出写的阈值，就会创建一个溢出写文件，因此在MapTask完成其最后一个输出记录后，便会有多个溢出写文件。在在MapTask完成前，溢出写文件被合并成一个索引文件和数据文件（多路归并排序）（Sort阶段）；
+    溢出写文件归并完毕后，Map将删除所有的临时溢出写文件，并告知TaskTracker任务已完成，只要其中一个MapTask完成，ReduceTask就开始复制它的输出（Copy阶段）；
+    Map的输出文件放置在运行MapTask的TaskTracker的本地磁盘上，它是运行ReduceTask,TaskTracker所需要的输入数据，但是Reduce输出不是这样的，它一般写到HDFS中（Reduce阶段）。
+    
+    2、Reduce端的Shuffle 
+    Copy阶段：Reduce进程启动一些数据copy线程，通过HTTP方式请求MapTask所在的TaskTracker以获取输出文件。 
+    Merge阶段：将Map端复制过来的数据先放入内存缓冲区中，Merge有3种形式，分别是内存到内存，内存到磁盘，磁盘到磁盘。默认情况下第一种形式不启用，第二种Merge方式一直在运行（spill阶段）直到结束，然后启用第三种磁盘到磁盘的Merge方式生成最终的文件。 
+    Reduce阶段：最终文件可能存在于磁盘，也可能存在于内存中，但是默认情况下是位于磁盘中的。当Reduce的输入文件已定，整个Shuffle就结束了，然后就是Reduce执行，把结果放到HDFS中。
+
+
