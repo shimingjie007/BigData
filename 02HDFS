@@ -1,0 +1,174 @@
+HDFS简介
+
+    HDFS是Hadoop使用的标准存储系统，是基于网络环境下的分布式文件系统。它是基于流数据模式访问和处理超大文件的需求开发的，实际上，这并不是什么新颖的事情，80年代左右就已经有人这么去实现了。存储在HDFS上的数据文件首先进行分块，每个分块创建多个副本，并存储在集群的不同节点上，Hadoop MapReduce程序可以在所有节点上处理这些数据。HDFS上数据存储和处理过程如下所示。
+
+
+
+HDFS设计原则
+
+    优点：
+    处理超大文件;流式的访问数据;运行于廉价的商用机器集群上.
+    缺点：
+    不适合低延迟访问;无法高效存储大量小文件;多方读写，需要任意的文件修改.
+
+HDFS的系统架构
+
+    HDFS的设计遵从主从体系结构，每个HDFS集群都有一个名字节点（NameNode)和若干数据节点（DataNode)。
+    HDFS存储文件的机制是将数据文件分块(Block)，这里的文件块指的是系统读写操作的最小文件大小，文件系统每次只能处理磁盘块大小的整数倍数据。然后将这些数据块按照一定的策略存放在数据节点(rack)上。
+    
+    1. rack:放服务器的支架。
+        一个Block的副本会保存到两个或两个以上的机架上的服务器中，这样能防灾容错，因为一个机架出现掉电，交换机挂了的概率还是很高的。
+    2. Blocks
+        HDFS的Block块比一般单机文件系统大得多，默认为128M。HDFS的文件被拆分成block-sized的chunk，chunk作为独立单元存储。比Block小的文件不会占用整个Block，只会占据实际大小。例如， 如果一个文件大小为1M，则在HDFS中只会占用1M的空间，而不是128M。
+        HDFS块相对较大，主要是把寻道时间最小化。如果一个块足够大，从硬盘传输数据的时间将远远大于寻找块起始位置的时间。这样使得HDFS的数据块速度和硬盘的传输速度更加接近。
+
+
+
+
+
+HDFS两个主要组件
+
+
+
+1. Namenode
+
+    NameNode负责构建命名空间，管理文件的元数据，接受用户的操作请求,是管理数据节点的，是一个jetty服务器。名字节点维护两套数据， 一套是文件目录与数据块之间的关系，另一套是数据块与节点之间的关系 。前一套 数据是静态的，是存放在磁盘上的，通过fsimage和edits文件来维护；后一套数据是动态的，不持久放到到磁盘的，每当集群启动的时候，会自动建立这些信息，所以一般都放在内存中。
+        
+    NameNode保存文件metadata信息，包括：
+    - 文件owership和permissions
+    - 文件包含哪些块
+    - Block保存在哪个DateNode(由DataNode启动时上报给)
+    
+    NameNode的metadata信息在启动后会加载到内存中，文件包括：
+    - fsimage （文件系统镜像）:元数据镜像文件。存储某一时段NameNode内存元数据信息。
+    - edits: 操作日志文件。
+    - fstime: 保存最近一次checkpoint的时间
+    
+    NameNode决定是否将文件映射到DataNode的复制块上：多副本，默认三个，第一个复制块存储在同一机架的不同节点上，最后一个复制块存储到不同机架的某个节点上。
+    HDFS的副本的存放策略考虑到带宽（包括写带宽和读带宽）和数据安全性。默认策略如下：
+    1.第一个副本放在客户端相同的机器上，如果机器在集群之外，随机选择一个（但是会尽可能选择容量不是太慢或者当前操作太繁忙的）
+    2.第二个副本随机放在不同于第一个副本的机架上。
+    3.第三个副本放在跟第二个副本同一机架上，但是不同的节点上，满足条件的节点中随机选择。
+    4.更多的副本在整个集群上随机选择，虽然会尽量避免太多副本在同一机架上。
+
+1. DataNode
+
+    Datanode负责实际存储数据，读写工作。
+    DataNode的作用：
+    - 保存Block,每个块对应一个元数据信息文件。这个文件主要描述这个块属于哪个文件，第几个块等信息。
+    - 启动DataNode线程的时候会向NameNode汇报Block信息
+    - 通过向NameNode发送心跳保持与其联系（3秒一次），如果NameNode 10分钟没有收到DataNode的心跳，认为其已经lost,并将其上的Block复制到其它的DataNode.
+
+1. Secondary Namenode
+
+    Secondary NameNode是HDFS架构中的一个组成部分,用来监控HDFS状态的辅助后台程序，用来保存namenode中对HDFS metadata的信息的备份，定期将Namespace镜像与操作日志文件(edit log)合并，以防止操作日志文件(edit log)变得过大；能减少NameNode启动时间。
+        在hadoop中，namenode负责对HDFS的metadata的持久化存储，并且处理来自客户端的对HDFS的各种操作的交互反馈。为了保证交互速度，HDFS文件系统的metadata是被load到namenode机器的内存中的，并且会将内存中的这些数据保存到磁盘进行持久化存储。为了保证这个持久化过程不会成为HDFS操作的瓶颈，hadoop采取的方式是：没有对任何一次的当前文件系统的snapshot进行持久化，对HDFS最近一段时间的操作list会被保存到namenode中的一个叫Editlog的文件中去。当重启namenode时，除了load fslmage意外，还会对这个Editlog文件中记录的HDFS操作进行replay，以恢复HDFS重启之前的最终状态。
+        而SecondaryNameNode，会周期性的将Editlog中记录的对HDFS的操作合并到一个checkpoint中，然后清空Editlog。所以namenode的重启就会Load最新的一个checkpoint，并replay Editlog中记录的hdfs操作，由于Editlog中记录的是从上一次checkpoint以后到现在的操作列表，所以就会比较小。如果没有snn的这个周期性的合并过程，那么当每次重启namenode的时候，就会花费很长的时间。而这样周期性的合并就能减少重启的时间。同时也能保证HDFS系统的完整性。这就是SecondaryNameNode所做的事情。所以snn并不能分担namenode上对HDFS交互性操作的压力。尽管如此，当namenode机器宕机或者namenode进程出问题时，namenode的daemon进程可以通过人工的方式从snn上拷贝一份metadata来恢复HDFS文件系统。
+    
+    将snn进程运行在一台非NameNode的机器上:
+    1、可扩展性：创建一个新的HDFS的snapshot需要将namenode中load到内存的metadata信息全部拷贝一遍，这样的操作需要的内存和namenode占用的内存一样，由于分配给namenode进程的内存其实是对HDFS文件系统的限制，如果分布式文件系统非常的大，那么namenode那台机器的内存就可能会被namenode进程全部占据。
+    2、容错性：当snn创建一个checkpoint的时候，它会将checkpoint拷贝成metadata的几个拷贝。将这个操作运行到另外一台机器，还可以提供分布式文件系统的容错性。
+    
+    SecondaryNameNode工作原理：
+    将日志与镜像的定期合并，总共分五步：
+    1、SecondaryNameNode通知NameNode准备提交edits文件，此时主节点产生edits.new
+    2、SecondaryNameNode通过http get方式获取NameNode的fsimage与edits文件（在SecondaryNameNode的current同级目录下可见到 temp.check-point或者previous-checkpoint目录，这些目录中存储着从namenode拷贝来的镜像文件）
+    3、SecondaryNameNode开始合并获取的上述两个文件，产生一个新的fsimage文件fsimage.ckpt
+    4、SecondaryNameNode用http post方式发送fsimage.ckpt至NameNode
+    5、NameNode将fsimage.ckpt与edits.new文件分别重命名为fsimage与edits，然后更新fstime，整个checkpoint过程到此结束。 在新版本的hadoop中（hadoop0.21.0）,SecondaryNameNode两个作用被两个节点替换， checkpoint node与backup node.SecondaryNameNode备份由三个参数控制fs.checkpoint.period控制周期，fs.checkpoint.size控制日志文件超过多少大小时合并， dfs.http.address表示http地址，这个参数在SecondaryNameNode为单独节点时需要设置。
+        
+    Secondary NameNode不是NameNode的热备份，可以作为一个冷备份：
+    - 将本地保存的fsimage导入
+    - 修改cluster的所有DataNode的NameNode地址 
+    - 修改所有client端的NameNode地址 
+    - 或者修改Secondary NameNode IP为 NameNode IP
+
+1. Block Caching
+
+    DataNode通常直接从磁盘读取数据，但是频繁使用的Block可以在内存中缓存。默认情况下，一个Block只有一个数据节点会缓存。但是可以针对每个文件可以个性化配置。
+
+1. HDFS Federation
+
+    NameNode的内存会制约文件数量，HDFS Federation提供了一种横向扩展NameNode的方式。在Federation模式中，每个NameNode管理命名空间的一部分，例如一个NameNode管理/user目录下的文件， 另一个NameNode管理/share目录下的文件。
+
+1. HDFS单点故障
+
+    在HDFS中，Namenode可能成为集群的单点故障，Namenode不可用时，整个文件系统是不可用的。HDFS针对单点故障提供了2种解决机制：
+    1）备份持久化元数据 
+    将文件系统的元数据同时写到多个文件系统， 例如同时将元数据写到本地文件系统及NFS。这些备份操作都是同步的、原子的。
+    2）Secondary Namenode
+    Secondary节点定期合并主Namenode的namespace image和edit log， 避免edit log过大，通过创建检查点checkpoint来合并。它会维护一个合并后的namespace image副本， 可用于在Namenode完全崩溃时恢复数据。
+    
+
+NameNode 安全模式
+
+    NameNode启动后会进入一个成为安全模式的特殊状态。此时NameNode不会进行数据块复制。NameNode从所有的DataNode接收心跳信号和块状态报告。块状态报告包括了某个DataNode所有的数据块列表。每个数据块都有一个指定的最小副本数，当NameNode检测确认某个数据块的副本数达到要求的时候，该数据块就会被认为是副本安全的。等安全DataNode达到了一定比率，NameNode就会退出安全模式，接下来还会继续确定还有哪些数据的副本没有达到指定数目。
+    1） namenode启动的时候，首先将映像文件（fsimage）载入内存，并执行编辑日志（edits）中的各项操作
+    2） 一旦在内存中成功建立文件系统元数据的映射，则创建一个新的fsimage文件（这个操作不要SecondaryNameNode）和一个空的日志edits文件
+    3） NameNode开始监听RPC和HTTP请求
+    4） 此刻namenode运行在安全模式，即namenode的文件系统对于客户端来说是只读的。（可以显示目录，显示文件内容等；写，删除，重命名等操作都会失败）
+    5） 系统中的数据块的位置不是有namenode维护的，而是以块列表的形式存储在datanode中（datanode启动汇报的）
+    6） 在系统的正常操作期间，namenode会在内存中保留所有块位置的映射信息
+    7）在安全模式下，各个datanode会向namenode发送块列表的最新情况
+    8） 进入和离开安全模式
+    
+    查看namenode处于哪个状态 
+    hadoop dfsadmin -sagemode get
+    
+    进入安全模式（hadoop启动的时候是在安全模式） 
+    hadoop dfsadmin -sagemode enter
+    
+    离开安全模式 
+    hadoop dfsadmin -sagemode leave
+    
+
+HDFS checkpoint
+
+    检查点是给secondarynamenode设置的，通过设置hdfs-site.xml中参数dfs.namenode.checkpoint.period和dfs.namenode.checkpoint.txns 来触发，只要达到这两个条件之一就可以出发secondarynamenode执行检查点的操作。
+    
+    检查点内容：
+    secondarynamenode执行检查点的内容是首先从namenode中读取Fsimage，并执行namenode中editslog文件中的操作，并最终生成一个新的FSimage文件，并将这个文件上传给Namenode。注意 ：在这个过程中，如果editlog没有任何的记录的话，达到了检查点的条件后，也由于没有发生任何改变，因此不执行检查点操作。
+    
+    检查点作用：
+    secondarynamenode执行这个检查点的操作，可以减少namenode的启动时间。
+    
+
+HDFS读取文件流程
+
+    读取操作的具体流程如下： 
+    1. 客户端(client)用FileSystem的open()函数打开文件。 
+    2. DistributedFileSystem用RPC和NameNode通信，得到文件的所有数据块信息以及这些数据块所在节点的地址信息。 
+    3. DistributedFileSystem将获取的数据块信息保存在FSDataInputStream中，然后返回给客户端，用来读取数据。 
+    4. 客户端根据NameNode返回的信息，连接到存有数据块的数据节点，然后调用stream的read()函数开始读取数据。 
+    5. DFSInputStream连接保存此文件第一个数据块的最近的数据节点。 
+    6. Data从数据节点读到客户端(client)。 
+    7. 当此数据块读取完毕时，DFSInputStream关闭和此数据节点的连接，然后连接此文件下一个数据块的最近的数据节点。 
+    8. 当客户端读取完毕数据的时候，调用FSDataInputStream的close函数。 
+    9. 在读取数据的过程中，如果客户端在与数据节点通信出现错误，则尝试连接包含此数据块的下一个数据节点。 
+    10. 失败的数据节点将被记录，以后不再连接。
+    
+
+
+
+HDFS写入文件流程
+
+    写入操作的具体流程如下： 
+    1. 客户端调用create()来创建文件 
+    2. DistributedFileSystem用RPC调用元数据节点，在文件系统的命名空间中创建一个新的文件。 
+    3. 元数据节点首先确定文件原来不存在，并且客户端有创建文件的权限，然后创建新文件。 
+    4. DistributedFileSystem返回DFSOutputStream，客户端用于写数据。 
+    5. 客户端开始写入数据，DFSOutputStream将数据分成块，写入data queue。 
+    6. Data queue由Data Streamer读取，并通知元数据节点分配数据节点，用来存储数据块(每块默认复制3块)。分配的数据节点放在一个pipeline里。 
+    7. Data Streamer将数据块写入pipeline中的第一个数据节点。第一个数据节点将数据块发送给第二个数据节点。第二个数据节点将数据发送给第三个数据节点。 
+    8. DFSOutputStream为发出去的数据块保存了ack queue，等待pipeline中的数据节点告知数据已经写入成功。 
+     如果数据节点在写入的过程中失败： 
+     关闭pipeline，将ack queue中的数据块放入data queue的开始。 
+     当前的数据块在已经写入的数据节点中被元数据节点赋予新的标示，则错误节点重启后能够察觉其数据块是过时的，会被删除。 
+     失败的数据节点从pipeline中移除，另外的数据块则写入pipeline中的另外两个数据节点。 
+     元数据节点则被通知此数据块是复制块数不足，将来会再创建第三份备份。 
+    9. 当客户端结束写入数据，则调用stream的close函数。此操作将所有的数据块写入pipeline中的数据节点，并等待ack queue返回成功。最后通知元数据节点写入完毕。
+    
+
+
+
+
