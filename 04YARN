@@ -1,0 +1,54 @@
+YARN是通用性的分布式资源管理器/框架
+
+为什么会出现YARN？
+
+    1. Hadoop1.x中的MapReduce既做资源调度管理又做任务计算。管理的事情太多，状态一致性不便保障，很难做到Secondary Standby，从而不便做HA。
+    2. Hadoop2.x中新方案YARN+MapReduce，YARN负责资源调度管理,MapReduce负责运算。并且Yarn的另一个目标就是拓展Hadoop，不仅支持MapReduce计算，还能管理诸如Hive、Hbase、Pig、Spark/Shark等应用。
+    3. 有了Yarn，各种应用就可以互不干扰的运行在同一个Hadoop系统中，实现整个集群资源的共享。
+
+Yarn框架的简介
+
+    将Hadoop1.x中的MapReduce的JobTracker两个主要功能分离成单独的组件，这两个功能是资源管理和任务调度/监控。新的资源管理器全局管理所有应用程序计算资源的分配，每一个应用的 ApplicationMaster 负责相应的调度和协调。一个应用程序无非是一个单独的传统的 MapReduce 任务或者是一个 DAG( 有向无环图 ) 任务。ResourceManager 和每一台机器的节点管理服务器能够管理用户在那台机器上的进程并能对计算进行组织。
+    
+    - ResourceManager：Global（全局）的进程
+    - NodeManager：运行在每个节点上的进程
+    - ApplicationMaster：Application-specific（应用级别）的进程
+    - Scheduler：是ResourceManager的一个组件
+    - Container：节点上一组CPU和内存资源
+
+新旧 Hadoop MapReduce 框架比对
+
+    首先客户端不变，其调用 API 及接口大部分保持兼容，这也是为了对开发使用者透明化，使其不必对原有代码做大的改变，但是原框架中核心的 JobTracker 和 TaskTracker 不见了，取而代之的是 ResourceManager, ApplicationMaster 与 NodeManager 三个部分。
+    
+    详细解释这三个部分:
+    首先 ResourceManager 是一个中心的服务，它做的事情是调度、启动每一个 Job 所属的 ApplicationMaster、另外监控 ApplicationMaster 的存在情况。细心的读者会发现：Job 里面所在的 task 的监控、重启等等内容不见了。这就是 AppMst 存在的原因。ResourceManager 负责作业与资源的调度。接收 JobSubmitter 提交的作业，按照作业的上下文 (Context) 信息，以及从 NodeManager 收集来的状态信息，启动调度过程，分配一个 Container 作为 App Mstr
+    
+    NodeManager 功能比较专一，就是负责 Container 状态的维护，并向 RM 保持心跳。
+    
+    ApplicationMaster 负责一个 Job 生命周期内的所有工作，类似老的框架中JobTracker。但注意每一个 Job（不是每一种）都有一个 ApplicationMaster，它可以运行在 ResourceManager 以外的机器上。
+
+Yarn 框架相对于老的 MapReduce 框架什么优势？
+
+    1. 这个设计大大减小了 JobTracker（也就是现在的 ResourceManager）的资源消耗，并且让监测每一个 Job 子任务 (tasks) 状态的程序分布式化了，更安全、更优美。
+    
+    2. 在新的 Yarn 中，ApplicationMaster 是一个可变更的部分，用户可以对不同的编程模型写自己的 AppMst，让更多类型的编程模型能够跑在 Hadoop 集群中，可以参考 hadoop Yarn 官方配置模板中的 mapred-site.xml 配置。
+    
+    3. 对于资源的表示以内存为单位 ( 在目前版本的 Yarn 中，没有考虑 cpu 的占用 )，比之前以剩余 slot 数目更合理。
+    
+    4. 老的框架中，JobTracker 一个很大的负担就是监控 job 下的 tasks 的运行状况，现在，这个部分就扔给 ApplicationMaster 做了，而 ResourceManager 中有一个模块叫做 ApplicationsMasters( 注意不是 ApplicationMaster)，它是监测 ApplicationMaster 的运行状况，如果出问题，会将其在其他机器上重启。
+    
+    5. Container 是 Yarn 为了将来作资源隔离而提出的一个框架。这一点应该借鉴了 Mesos 的工作，目前是一个框架，仅仅提供 java 虚拟机内存的隔离 ,hadoop 团队的设计思路应该后续能支持更多的资源调度和控制 , 既然资源表示成内存量，那就没有了之前的 map slot/reduce slot 分开造成集群资源闲置的尴尬情况。
+
+Yarn命令
+
+    Yarn命令是调用bin/yarn脚本文件，如果运行yarn脚本没有带任何参数，则会打印yarn所有命令的描述。
+    
+    Hadoop中常用的用户命令
+    - application  
+    yarn application -kill application_1542042886559_7376（杀掉任务）
+    - log  
+    yarn logs -applicationId application_1542042886559_6042（打印任务日志）
+    - jar   
+    yarn jar <jar>（运行jar文件）
+
+
